@@ -151,6 +151,9 @@ class KiaCar:
         # After a refused sign-in nothing logs in again until the person submits the form.
         self._auto_login_allowed = True
         self.report_path: Path | None = None   # where Kia's monthly health report is kept (set by the app)
+        # What the current call asked Kia for (the Kia activity log, see take_activity).
+        self._steps: list[str] = []
+        self._endpoints: list[str] = []
 
     # Setup
 
@@ -170,6 +173,7 @@ class KiaCar:
             return result
 
         vm.api.login = capturing_login
+        self._watch_requests(vm.api)
         # The library already fetches Kia's monthly health report on a status read, but keeps
         # only part of it. Keep Kia's whole answer too, for the health report.
         original_report = getattr(vm.api, "_get_mvr_report", None)
@@ -181,6 +185,39 @@ class KiaCar:
 
             vm.api._get_mvr_report = capturing_report
         return vm
+
+    def _watch_requests(self, api: Any) -> None:
+        """Note every request the library (or the region) sends to Kia, by endpoint name."""
+        try:
+            session = api.sessions
+        except Exception:
+            return
+        base = str(getattr(api, "API_URL", "") or "")
+        for name in ("post", "get"):
+            original = getattr(session, name, None)
+            if not callable(original):
+                continue
+
+            def watched(url: Any, *args: Any, _original: Any = original, **kwargs: Any) -> Any:
+                text = str(url)
+                endpoint = text[len(base):] if base and text.startswith(base) else text.rstrip("/").rsplit("/", 1)[-1]
+                self._endpoints.append(endpoint.split("?", 1)[0])
+                return _original(url, *args, **kwargs)
+
+            setattr(session, name, watched)
+
+    def _step(self, name: str) -> None:
+        self._steps.append(name)
+
+    def take_activity(self) -> tuple[list[str], list[str]]:
+        """What was asked of Kia since the last take: (steps, endpoints). Clears both."""
+        steps, endpoints = self._steps, self._endpoints
+        self._steps, self._endpoints = [], []
+        return steps, endpoints
+
+    def reaches_car(self, steps: list[str], endpoints: list[str]) -> bool:
+        """True when the call went to the car itself, not just to Kia's copy of it (12V battery)."""
+        return bool({"wake", "command"} & set(steps)) or bool(set(endpoints) & self.region.car_endpoints)
 
     def _keep_report(self, report: Any) -> None:
         if self.report_path is None or not isinstance(report, dict) or not report:
@@ -242,6 +279,7 @@ class KiaCar:
         self._cached_update()
 
     def _cached_update(self) -> None:
+        self._step("status")
         self.vm.update_vehicle_with_cached_state(self.vehicle_id)
         self._snapshot = vehicle_to_state(self.vm.get_vehicle(self.vehicle_id))
 
@@ -271,6 +309,7 @@ class KiaCar:
             pass   # the auth state already says what happened
 
     def _connect(self) -> None:
+        self._step("sign_in")
         if self.vm.token is None:
             result = self.vm.login()
             if isinstance(result, OTPRequest):
@@ -297,6 +336,7 @@ class KiaCar:
             raise ServiceError(400, "Kia only offers the code by email for this account.")
         if getattr(self.vm, "otp_request", None) is None:
             raise ServiceError(409, "Kia's code request is missing. Sign in again.")
+        self._step("code_send")
         self._guard(lambda: self.vm.send_otp(OTP_NOTIFY_TYPE[method]))
 
     def otp_verify(self, code: str) -> None:
@@ -307,6 +347,7 @@ class KiaCar:
             raise ServiceError(400, "Send a code first.")
 
         def verify() -> None:
+            self._step("code_check")
             self.vm.verify_otp_and_complete_login(code)   # also loads the vehicles
             self.vm.otp_request = None
             self._finish_login()
@@ -358,6 +399,7 @@ class KiaCar:
             return None
         if self._entry is None:
             self._ensure_token()
+            self._step("car_info")
             self._entry = self.region.vehicle_entry(self.vm, self.vehicle_id) or {}
         return self._entry or None
 
@@ -372,6 +414,7 @@ class KiaCar:
         def run() -> None:
             self._ensure_token()
             if force:
+                self._step("wake")
                 self.vm.force_refresh_vehicle_state(self.vehicle_id)
                 self._snapshot = vehicle_to_state(self.vm.get_vehicle(self.vehicle_id))
             else:
@@ -387,6 +430,7 @@ class KiaCar:
 
         def run() -> str:
             self._ensure_token()
+            self._step("command")
             if action == "lock":
                 result = self.vm.lock(vid)
             elif action == "unlock":
@@ -425,6 +469,7 @@ class KiaCar:
 
         def run() -> ORDER_STATUS:
             self._ensure_token()
+            self._step("check")
             return self.vm.check_action_status(vid, handle, synchronous=False)
 
         status = self._guard(run)

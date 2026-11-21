@@ -11,7 +11,7 @@ Start: `.venv\Scripts\python.exe -m server` (real car) or `.venv\Scripts\python.
 ## Secrets and files
 - Kia email, password, PIN and the Kia token live ONLY in Windows Credential Manager via `keyring`
   (service name `kia-remote`). Never in a file, never logged, never returned by the API.
-- Presets and the command log live in `%LOCALAPPDATA%\kia-remote\` (JSON), not in the repo.
+- Presets, the command log and the Kia activity log live in `%LOCALAPPDATA%\kia-remote\` (JSON), not in the repo.
 - Passkeys for unlock (public keys, sign counts, labels; not secrets) are in `passkeys.json` there
   (`passkeys-demo.json` in demo mode, so a demo enrolment never unlocks the real car).
 - `settings.json` there holds settings (not secrets): the two Cloudflare Access values (below),
@@ -129,6 +129,22 @@ Demo mode: the PIN is `1234`, passkeys work the same way.
 After success the service does a cheap (non-forced) refresh so /api/state reflects it.
 
 ## GET /api/log -> `{"entries": [ ...last 50 commands, newest first... ]}`
+`command-log.json` keeps the last 500.
+
+## GET /api/kia-calls -> `{"entries": [ ...every call to Kia, newest first... ]}`
+The Kia activity log (`kia-calls.json`, last 2,000 calls; dots menu > Kia activity). One entry per
+service call that actually asked Kia for something (a cached answer that didn't isn't logged):
+`{"at": ISO, "why": "startup"|"sign_in"|"code_send"|"code_check"|"app_open"|"refresh"|"wake"|
+"command"|"check"|"after_command"|"car_info", "action": null|"lock"|..., "who": null|"<email>"|
+"schedule HH:MM", "ok": bool, "ms": int, "reached_car": bool, "steps": [...],
+"endpoints": ["lstvhclsts", ...], "message": null|"why it failed"}`.
+`reached_car` is true for commands, a wake (forced refresh) and any request to an endpoint in the
+region's `car_endpoints` (Canada: the remote commands, `rltmvhclsts` and `fndmcr`, Find My Car,
+which the library calls on a normal read only after the car moved or once per run when no
+location is known). Everything else is answered from Kia's servers and doesn't touch the car.
+`app_open` reads happen only while a dashboard is open and polling (at most every 2 minutes);
+nothing reaches Kia while no dashboard is open, except schedules. Each call is also a
+`Kia call:` line in `server.log`.
 
 ## GET /api/car-photo -> `image/png`
 Kia Connect Canada's own picture of this car, as kiaconnect.ca shows it:

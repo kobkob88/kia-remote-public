@@ -14,7 +14,7 @@ from typing import Any, Callable
 
 from .errors import ServiceError
 from .secrets_store import REDACTOR
-from .storage import LOG_LIMIT, Storage
+from .storage import CALL_LIMIT, LOG_LIMIT, Storage
 from .timeutil import iso, now_iso, parse_iso
 
 log = logging.getLogger("server.service")
@@ -39,6 +39,7 @@ def download_image(url: str) -> bytes | None:
     return body
 
 FORCE_REFRESH_INTERVAL = 600.0   # seconds; a forced refresh wakes the car and costs 12V battery
+LOG_SHOWN = 50   # commands /api/log returns; the dashboard shows 8, the file keeps more
 REREAD_AFTER = 120.0             # seconds; a dashboard asking for state rereads Kia's copy this often
 
 
@@ -57,6 +58,7 @@ class CarService:
         # One worker thread: the library is synchronous and never runs two calls at once.
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="kia")
         self._log: list[dict[str, Any]] = storage.load_log()
+        self._calls: list[dict[str, Any]] = storage.load_calls()
         self._pending: dict[str, Any] | None = None
         self._last_forced: float | None = None
         self._last_read: float = clock()
@@ -74,6 +76,71 @@ class CarService:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, functools.partial(fn, *args))
 
+    async def kia(self, why: str, fn: Callable[..., Any], *args: Any,
+                  action: str | None = None, who: str | None = None) -> Any:
+        """Run a backend call that may reach Kia, and write it to the Kia activity log.
+
+        why: what asked for it ("startup", "app_open", "refresh", "wake", "command", "check",
+        "after_command", "car_info", "sign_in", "code_send", "code_check"). Only calls that
+        actually asked Kia for something are written (a cached car picture isn't)."""
+        take = getattr(self.backend, "take_activity", None)
+        box: dict[str, Any] = {}
+
+        def job() -> Any:
+            if take is not None:
+                take()   # drop anything left over from a call that wasn't logged
+            try:
+                return fn(*args)
+            finally:
+                box["activity"] = take() if take is not None else None
+
+        started = time.perf_counter()
+        ok, message = False, None
+        try:
+            result = await self.run(job)
+            ok = True
+            return result
+        except ServiceError as err:
+            message = err.message
+            raise
+        except Exception as err:
+            message = type(err).__name__
+            raise
+        finally:
+            self._note_call(why, box.get("activity"), ok, message,
+                            round((time.perf_counter() - started) * 1000), action, who)
+
+    def _note_call(self, why: str, activity: tuple[list[str], list[str]] | None, ok: bool,
+                   message: str | None, ms: int, action: str | None, who: str | None) -> None:
+        if activity is None:   # a backend that can't tell (demo): every call counts
+            steps, endpoints = [why], []
+            reached = why in ("wake", "command")
+        else:
+            steps, endpoints = activity
+            if not steps and not endpoints:
+                return   # nothing was asked of Kia
+            reached = self.backend.reaches_car(steps, endpoints)
+        entry = {
+            "at": now_iso(), "why": why, "action": action, "who": who, "ok": ok, "ms": ms,
+            "reached_car": reached,
+            "steps": list(dict.fromkeys(steps)),
+            "endpoints": list(dict.fromkeys(endpoints)),
+            "message": REDACTOR.scrub(message) if message else None,
+        }
+        self._calls.insert(0, entry)
+        del self._calls[CALL_LIMIT:]
+        try:
+            self.storage.save_calls(self._calls)
+        except OSError as err:
+            log.warning("Couldn't save the Kia activity log: %s", err)
+        log.info("Kia call: %s%s, %s, %s, %d ms [%s]%s", why, f" {action}" if action else "",
+                 "reached the car" if reached else "Kia's servers only", "ok" if ok else "failed", ms,
+                 ", ".join(entry["endpoints"]) or ", ".join(entry["steps"]),
+                 f" ({entry['message']})" if entry["message"] else "")
+
+    def calls(self) -> list[dict[str, Any]]:
+        return list(self._calls)
+
     async def start(self) -> None:
         # Interrupted commands from a previous run can't be tracked any more.
         changed = False
@@ -84,7 +151,7 @@ class CarService:
                 changed = True
         if changed:
             self.storage.save_log(self._log)
-        await self.run(self.backend.startup)
+        await self.kia("startup", self.backend.startup)
 
     async def stop(self) -> None:
         for task in list(self._tasks):
@@ -122,7 +189,7 @@ class CarService:
 
         async def reread() -> None:
             try:
-                await self.run(self.backend.refresh, False)
+                await self.kia("app_open", self.backend.refresh, False)
             except Exception as err:   # signed out, Kia down: the next tap of refresh says so
                 log.info("Background reread failed: %s", type(err).__name__)
             finally:
@@ -165,14 +232,14 @@ class CarService:
     # Auth
 
     async def login(self, email: str, password: str, pin: str) -> dict[str, Any]:
-        await self.run(self.backend.login, email, password, pin)
+        await self.kia("sign_in", self.backend.login, email, password, pin)
         return self.state()
 
     async def otp_send(self, method: str) -> None:
-        await self.run(self.backend.otp_send, method)
+        await self.kia("code_send", self.backend.otp_send, method)
 
     async def otp_verify(self, code: str) -> dict[str, Any]:
-        await self.run(self.backend.otp_verify, code)
+        await self.kia("code_check", self.backend.otp_verify, code)
         return self.state()
 
     async def logout(self) -> dict[str, Any]:
@@ -193,7 +260,7 @@ class CarService:
                     f"battery, wait about {minutes} more minute{'s' if minutes != 1 else ''}, or use "
                     "a normal refresh."))
             self._last_forced = now   # counted even if it fails: the car was woken anyway
-        await self.run(self.backend.refresh, force)
+        await self.kia("wake" if force else "refresh", self.backend.refresh, force)
         self._last_read = self.clock()
         return self.state()
 
@@ -202,7 +269,7 @@ class CarService:
         region = getattr(self.backend, "region", None)
         if lookup is None or region is None or self.backend.auth != "ok":
             return None
-        entry = await self.run(lookup)
+        entry = await self.kia("car_info", lookup)
         return (region, entry) if entry else None
 
     async def car_photo(self) -> bytes | None:
@@ -278,7 +345,7 @@ class CarService:
     # Commands
 
     def log_entries(self) -> list[dict[str, Any]]:
-        return [_public(e) for e in self._log[:LOG_LIMIT]]
+        return [_public(e) for e in self._log[:LOG_SHOWN]]   # the file keeps LOG_LIMIT
 
     def get_entry(self, cid: str) -> dict[str, Any]:
         for entry in self._log:
@@ -340,7 +407,8 @@ class CarService:
         b = self.backend
         try:
             try:
-                handle = await self.run(b.send_command, action, options)
+                handle = await self.kia("command", b.send_command, action, options,
+                                        action=action, who=entry.get("who"))
             except ServiceError as err:
                 self._finish(entry, "error", err.message)
                 return
@@ -348,7 +416,7 @@ class CarService:
             while True:
                 await asyncio.sleep(b.poll_interval)
                 try:
-                    status, message = await self.run(b.check_command, handle)
+                    status, message = await self.kia("check", b.check_command, handle, action=action)
                 except ServiceError as err:
                     self._finish(entry, "error", err.message)
                     return
@@ -363,7 +431,7 @@ class CarService:
                 message = "The car didn't stop. Try again, or turn it off in the car."
             self._finish(entry, status, message)
             if status == "success":
-                await self.run(b.after_success)
+                await self.kia("after_command", b.after_success, action=action)
         except asyncio.CancelledError:
             if entry["status"] == "pending":
                 self._finish(entry, "error", "The service stopped before Kia answered.")

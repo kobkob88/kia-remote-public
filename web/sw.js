@@ -1,5 +1,5 @@
 // Car Remote service worker: network first, cache only as the offline fallback. Never caches /api/.
-const VERSION = 'sportage-v24';   // keep APP_VERSION in app.js in step
+const VERSION = 'sportage-v25';   // keep APP_VERSION in app.js in step
 
 const NETWORK_WAIT_MS = 3000;
 const DEAD_FOR_MS = 15000;   // after one slow answer, don't wait on the network for the next files
@@ -16,6 +16,7 @@ const SHELL = [
   'climate.js',
   'schedule.js',
   'health.js',
+  'activity.js',
   'dom.js',
   'spin.js',
   'diag.js',

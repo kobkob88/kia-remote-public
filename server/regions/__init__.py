@@ -27,6 +27,10 @@ class Region:
     dial_min = 17.0
     dial_max = 27.0
 
+    # Kia endpoints that go to the car itself (they wake it and draw on its 12V battery), as the
+    # Kia activity log names them. Anything else is answered from Kia's servers.
+    car_endpoints: frozenset[str] = frozenset()
+
     cache_dir: Path | None = None   # the data folder; set by the app, for files worth keeping
 
     def climate_request(self, options: dict[str, Any], set_temp: float) -> ClimateRequestOptions:

@@ -9,12 +9,13 @@ import { renderCar, climateMode } from './car.js';
 import { renderPresets, openClimateSheet, lastOptions, describe, setDial } from './climate.js';
 import * as schedule from './schedule.js';
 import { openHealth } from './health.js';
+import { openActivity } from './activity.js';
 
 const POLL_MS = 30000;
 const CMD_POLL_MS = 2000;
 const REAUTH_KEY = 'sportage.reauth';
 const RELOAD_KEY = 'sportage.autoreload';
-const APP_VERSION = 'v24';   // matches sw.js VERSION; shown at the bottom of the menu
+const APP_VERSION = 'v25';   // matches sw.js VERSION; shown at the bottom of the menu
 const CACHE_KEY = 'sportage.state';
 const PRESET_KEY = 'sportage.presets';
 
@@ -805,6 +806,7 @@ function wire() {
     if (choice === 'wake') wakeCar();
     if (choice === 'passkey') togglePasskey();
     if (choice === 'devices') openDevices();
+    if (choice === 'activity') openActivity();
     if (choice === 'health') {
       const v = state?.vehicle;
       openHealth({ warnings: activeWarnings(v), serviceKm: num(v?.next_service_km) });

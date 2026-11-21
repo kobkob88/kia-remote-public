@@ -519,3 +519,49 @@ def test_health_report_leaves_out_what_it_cant_read():
     assert report["systems"] == [{"group": "x", "name": "Y", "code": None, "ok": None}]
     assert report["driving"]["engine_on_s"] is None               # unknown unit: not guessed
     assert report["driving"]["distance_km"] == 5                  # 3 miles
+
+
+def test_kia_activity_log(tmp_path, memory_keyring, vm_factory, world):
+    """Every call to Kia is logged with why it happened and whether it reached the car."""
+    with make_client(tmp_path, vm_factory) as c:
+        assert c.get("/api/kia-calls").json() == {"entries": []}   # signed out: nothing asked of Kia
+        sign_in(c)
+        whys = [e["why"] for e in c.get("/api/kia-calls").json()["entries"]]
+        assert whys[:3] == ["code_check", "code_send", "sign_in"]
+
+        c.post("/api/refresh", json={"force": False})
+        c.post("/api/refresh", json={"force": True})
+        world.action_status = [ORDER_SUCCESS]
+        cid = c.post("/api/command", json={"action": "climate_start",
+                                           "options": {"set_temp_c": 21}, "pin": PIN}).json()["id"]
+        assert wait_for_command(c, cid)["status"] == "success"
+        entries = c.get("/api/kia-calls").json()["entries"]
+        by_why = {}
+        for e in entries:
+            by_why.setdefault(e["why"], e)
+        assert by_why["refresh"]["reached_car"] is False and by_why["refresh"]["ok"] is True
+        assert by_why["wake"]["reached_car"] is True
+        cmd = by_why["command"]
+        assert cmd["reached_car"] is True and cmd["action"] == "climate_start"
+        assert "rmtstrt" in cmd["endpoints"]                 # the request itself, by endpoint
+        assert by_why["check"]["reached_car"] is False       # asking Kia about it doesn't touch the car
+        assert by_why["after_command"]["reached_car"] is False
+        assert entries[0]["why"] == "after_command"          # newest first
+
+        # A cached answer that never asked Kia isn't logged; a failed call is.
+        n = len(entries)
+        assert c.post("/api/refresh", json={"force": True}).status_code == 429   # stopped before Kia
+        assert len(c.get("/api/kia-calls").json()["entries"]) == n
+
+    # Kept across restarts (the restart's own sign-in comes on top).
+    with make_client(tmp_path, vm_factory) as c:
+        entries = c.get("/api/kia-calls").json()["entries"]
+        assert entries[0]["why"] == "startup" and len(entries) == n + 1
+    assert (tmp_path / "data" / "kia-calls.json").is_file()
+
+
+def test_find_my_car_counts_as_reaching_the_car(tmp_path, memory_keyring, vm_factory, world):
+    backend = KiaCar(SecretStore(), vm_factory=vm_factory)
+    assert backend.reaches_car(["status"], ["lstvhclsts", "nxtsvc"]) is False
+    assert backend.reaches_car(["status"], ["lstvhclsts", "fndmcr"]) is True
+    assert backend.reaches_car(["wake"], []) is True

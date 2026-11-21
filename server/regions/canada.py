@@ -33,6 +33,11 @@ class Canada(Region):
     library_brand = 1
     account_site = "kiaconnect.ca"
     tested = True
+    # Remote commands, the live status read and Find My Car go to the car; everything else
+    # (lstvhclsts, nxtsvc, gtmvrrpt, rmtsts, vrfypin, sign-in) is Kia's servers.
+    car_endpoints = frozenset({"rltmvhclsts", "fndmcr", "rmtstrt", "rmtstp", "drlck", "drulck",
+                               "hornlight", "evc/rfon", "evc/rfoff", "evc/rcstrt", "evc/rcstp",
+                               "evc/setsoc"})
 
     # Tried 2026-11-17: the word "HI" starts the engine with climate off; 27.5 runs at 27; 31.5
     # falls back to 22. So HI / LO go out as 27 / 17 (the default end_temp).

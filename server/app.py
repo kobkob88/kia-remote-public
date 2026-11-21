@@ -330,6 +330,11 @@ def create_app(demo: bool = False, data_dir: Path | None = None, *,
     async def get_log():
         return {"entries": service.log_entries()}
 
+    @app.get("/api/kia-calls")
+    async def get_kia_calls():
+        """Every call this computer made to Kia, newest first (see docs/api-contract.md)."""
+        return {"entries": service.calls()}
+
     @app.post("/api/diag")
     async def post_diag(request: Request):
         """The dashboard's own log of resumes and request failures, written to server.log."""

@@ -343,6 +343,10 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path class="ico" d="M3 12h4l2-5 4 10 2-5h6"/></svg>
         <span class="menu-text"><span data-t="menu.health"></span><small data-t="menu.health.note"></small></span>
       </button>
+      <button class="menu-item" value="activity" id="menu-activity">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path class="ico" d="M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18Zm0 4.5V12l3 2"/></svg>
+        <span class="menu-text"><span data-t="menu.activity"></span><small data-t="menu.activity.note"></small></span>
+      </button>
       <button class="menu-item" value="devices" id="menu-devices">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path class="ico" d="M8 3h8a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Zm3 15h2"/></svg>
         <span class="menu-text"><span data-t="menu.devices"></span><small data-t="menu.devices.note"></small></span>
@@ -383,6 +387,24 @@
       </div>
       <p class="form-error" id="health-error" role="alert" hidden></p>
       <p class="health-foot" data-t="health.foot"></p>
+      <button class="btn-secondary" value="cancel" data-t="menu.cancel"></button>
+    </form>
+  </dialog>
+
+  <dialog class="sheet sheet-tall" id="activity-sheet" aria-labelledby="activity-title">
+    <form method="dialog" class="sheet-body">
+      <div class="sheet-grip" aria-hidden="true"></div>
+      <div class="sheet-head">
+        <h2 id="activity-title" data-t="activity.title"></h2>
+        <button class="icon-btn" value="cancel" data-t-aria="menu.cancel">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path class="ico" d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <p class="sheet-text" data-t="activity.lead"></p>
+      <div class="health-stats" id="activity-summary"></div>
+      <p class="sheet-text" id="activity-empty" data-t="activity.empty" hidden></p>
+      <div class="activity-days" id="activity-days"></div>
+      <p class="form-error" id="activity-error" role="alert" hidden></p>
       <button class="btn-secondary" value="cancel" data-t="menu.cancel"></button>
     </form>
   </dialog>

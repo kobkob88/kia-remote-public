@@ -904,3 +904,15 @@ button:disabled:active { transform: none; }
 .health-legend .is-drive::before { background: var(--glacier); }
 .health-legend .is-idle::before { background: var(--amber); }
 .health-foot { color: var(--ink-3); font-size: 13px; line-height: 1.4; }
+
+/* Kia activity */
+.activity-days { display: grid; gap: 8px; }
+.activity-days:empty { display: none; }
+.activity-text { display: grid; gap: 2px; min-width: 0; }
+.activity-note { font-size: 13px; color: var(--ink-3); }
+.activity-row.is-issue .activity-note { color: var(--amber); }
+.activity-tag { flex: none; margin-left: auto; display: flex; align-items: center; gap: 4px; font-size: 13px; color: var(--ink-3); }
+.activity-tag svg { width: 18px; height: 18px; }
+.activity-tag.is-car { color: var(--amber); font-weight: 600; }
+.activity-car { font-size: 13px; color: var(--ink-3); }
+.activity-car.is-car { color: var(--amber); }

@@ -1,4 +1,4 @@
-"""Presets and the command log, as JSON files in the data folder (see default_data_dir)."""
+"""Presets, the command log and the Kia activity log, as JSON files in the data folder (see default_data_dir)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
-LOG_LIMIT = 50
+LOG_LIMIT = 500    # commands kept (newest first)
+CALL_LIMIT = 2000  # Kia calls kept: weeks of normal use
 
 DEFAULT_PRESETS: list[dict[str, Any]] = [
     {
@@ -82,6 +83,7 @@ class Storage:
         self.schedules_path = self.data_dir / ("schedules-demo.json" if demo else "schedules.json")
         # Demo commands go to their own log so they never mix with the real car's.
         self.log_path = self.data_dir / ("command-log-demo.json" if demo else "command-log.json")
+        self.calls_path = self.data_dir / ("kia-calls-demo.json" if demo else "kia-calls.json")
         self._lock = threading.Lock()
 
     def load_presets(self) -> list[dict[str, Any]]:
@@ -118,3 +120,14 @@ class Storage:
     def save_log(self, entries: list[dict[str, Any]]) -> None:
         with self._lock:
             _write_json(self.log_path, {"entries": entries[:LOG_LIMIT]})
+
+    def load_calls(self) -> list[dict[str, Any]]:
+        with self._lock:
+            data = _read_json(self.calls_path)
+            if isinstance(data, dict) and isinstance(data.get("entries"), list):
+                return data["entries"][:CALL_LIMIT]
+            return []
+
+    def save_calls(self, entries: list[dict[str, Any]]) -> None:
+        with self._lock:
+            _write_json(self.calls_path, {"entries": entries[:CALL_LIMIT]})

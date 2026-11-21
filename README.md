@@ -137,7 +137,7 @@ change.
 | macOS | `~/Library/Application Support/kia-remote/` | The login Keychain (`kia-remote`) |
 | Linux / Pi | `~/.local/share/kia-remote/` | `secrets.json` in the data folder, readable only by that user |
 
-The data folder also holds presets, schedules, the command log, the last health report, approved devices, passkeys
+The data folder also holds presets, schedules, the command log, the Kia activity log, the last health report, approved devices, passkeys
 (public keys only), settings, the service log and the cached car pictures. Secrets are never
 logged and never returned by the API. "Sign out of Kia" in the menu deletes them.
 
